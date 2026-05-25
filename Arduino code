@@ -1,0 +1,690 @@
+#include <Arduino.h>
+#include <WiFi.h>
+
+// WiFi details
+const char *ssid = "SmartHouse_Group16";
+const char *password = "12345678";
+
+WiFiServer server(80);
+
+// Pin assignments
+const int light1 = 2;
+const int light2 = 4;
+const int socket1 = 5;
+
+// Active LOW relay logic
+const int ON_STATE = LOW;
+const int OFF_STATE = HIGH;
+
+// Store light states
+bool light1State = false;
+bool light2State = false;
+bool socket1State = false;
+
+String makePage() {
+  String l1Status = light1State ? "ON" : "OFF";
+  String l2Status = light2State ? "ON" : "OFF";
+  String socketStatus = socket1State ? "ON" : "OFF";
+
+  String l1CardClass = light1State ? "card on" : "card off";
+  String l2CardClass = light2State ? "card on" : "card off";
+  String socketCardClass = socket1State ? "card socket-card-on" : "card off";
+
+  String l1BulbClass = light1State ? "bulb bulb-on" : "bulb bulb-off";
+  String l2BulbClass = light2State ? "bulb bulb-on" : "bulb bulb-off";
+  String socketIconClass = socket1State ? "socket-icon socket-icon-on" : "socket-icon socket-icon-off";
+
+  String l1ButtonClass = light1State ? "switch switch-on" : "switch switch-off";
+  String l2ButtonClass = light2State ? "switch switch-on" : "switch switch-off";
+  String socketButtonClass = socket1State ? "switch switch-on" : "switch switch-off";
+
+  String l1Link = light1State ? "/L1OFF" : "/L1ON";
+  String l2Link = light2State ? "/L2OFF" : "/L2ON";
+  String socketLink = socket1State ? "/S1OFF" : "/S1ON";
+
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart House Control</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #08111f, #102a43);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 15px;
+    }
+
+    .top {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .home-icon {
+      font-size: 55px;
+      margin-bottom: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 34px;
+      color: #64ffda;
+    }
+
+    .subtitle {
+      color: #b8c7d9;
+      margin-top: 8px;
+      font-size: 15px;
+      letter-spacing: 1px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 850px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 25px;
+    }
+
+    .card {
+      border-radius: 25px;
+      padding: 30px 25px;
+      text-align: center;
+      transition: 0.3s ease;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .card.off {
+      background: rgba(255,255,255,0.06);
+    }
+
+    .card.on {
+      background: radial-gradient(circle at top, rgba(255,210,90,0.28), rgba(255,255,255,0.08));
+      box-shadow: 0 0 35px rgba(255, 208, 72, 0.35);
+    }
+
+    .room-name {
+      font-size: 23px;
+      font-weight: bold;
+      margin-bottom: 15px;
+    }
+
+    .bulb {
+      width: 100px;
+      height: 100px;
+      margin: 15px auto 20px;
+      border-radius: 50% 50% 45% 45%;
+      position: relative;
+      transition: 0.3s ease;
+    }
+
+    .bulb::after {
+      content: "";
+      position: absolute;
+      width: 45px;
+      height: 25px;
+      background: #777;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: -18px;
+      border-radius: 0 0 10px 10px;
+    }
+
+    .bulb-on {
+      background: #ffd447;
+      box-shadow:
+        0 0 25px #ffd447,
+        0 0 60px rgba(255, 212, 71, 0.8),
+        0 0 100px rgba(255, 212, 71, 0.45);
+    }
+
+    .bulb-off {
+      background: #3b4656;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+    }
+
+    .status {
+      font-size: 18px;
+      margin: 25px 0 20px;
+      color: #dbeafe;
+    }
+
+    .status span {
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+
+    .switch {
+      display: inline-block;
+      width: 170px;
+      padding: 16px 0;
+      border-radius: 50px;
+      text-decoration: none;
+      color: white;
+      font-size: 20px;
+      font-weight: bold;
+      transition: 0.25s ease;
+    }
+
+    .switch-on {
+      background: #ef4444;
+      box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
+    }
+
+    .switch-off {
+      background: #22c55e;
+      box-shadow: 0 8px 20px rgba(34, 197, 94, 0.35);
+    }
+
+    .switch:active {
+      transform: scale(0.95);
+    }
+
+    /* Socket card only - does not affect Bulb 1 or Bulb 2 */
+    .socket-card-on {
+      background: radial-gradient(circle at top, rgba(0, 229, 255, 0.25), rgba(255,255,255,0.08));
+      box-shadow:
+        0 0 25px rgba(0, 229, 255, 0.45),
+        0 0 55px rgba(0, 229, 255, 0.25);
+    }
+
+    /* Socket logo only */
+    .socket-icon {
+      width: 100px;
+      height: 100px;
+      margin: 15px auto 20px;
+      border-radius: 24px;
+      position: relative;
+      transition: 0.3s ease;
+      border: 5px solid #3b4656;
+      background: rgba(255,255,255,0.04);
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.45);
+    }
+
+    .socket-icon::before {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 32px;
+      background: #3b4656;
+      border-radius: 8px;
+      top: 25px;
+      left: 28px;
+      box-shadow: 28px 0 0 #3b4656;
+      transition: 0.3s ease;
+    }
+
+    .socket-icon::after {
+      content: "";
+      position: absolute;
+      width: 22px;
+      height: 10px;
+      border-radius: 10px;
+      background: #3b4656;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      transition: 0.3s ease;
+    }
+
+    .socket-icon-on {
+      border-color: #00e5ff;
+      background: rgba(0, 229, 255, 0.12);
+      box-shadow:
+        0 0 25px #00e5ff,
+        0 0 60px rgba(0, 229, 255, 0.75),
+        inset 0 0 25px rgba(0, 229, 255, 0.25);
+    }
+
+    .socket-icon-on::before,
+    .socket-icon-on::after {
+      background: #00e5ff;
+      box-shadow: 28px 0 0 #00e5ff;
+    }
+
+    .socket-icon-on::after {
+      box-shadow: 0 0 18px #00e5ff;
+    }
+
+    .small-text {
+      margin-top: 30px;
+      color: #94a3b8;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* --- Security overlay from code 1, added without changing your control UI --- */
+    #security-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at center, #1e1b4b 0%, #090d16 100%);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.5s;
+    }
+
+    #security-overlay::before {
+      content: "";
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-image:
+        linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+      background-size: 30px 30px;
+      background-position: center;
+      pointer-events: none;
+    }
+
+    .login-box {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid #0284c7;
+      padding: 40px;
+      border-radius: 16px;
+      text-align: center;
+      box-shadow: 0 0 30px rgba(14, 165, 233, 0.2), inset 0 0 15px rgba(14, 165, 233, 0.1);
+      width: 90%;
+      max-width: 400px;
+      backdrop-filter: blur(12px);
+      position: relative;
+      transition: transform 0.4s ease, opacity 0.4s ease;
+    }
+
+    .login-box h2 {
+      margin-top: 0;
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+      color: #38bdf8;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+    }
+
+    .login-box p {
+      color: #64748b;
+      font-size: 0.85rem;
+      margin-bottom: 30px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .password-container {
+      position: relative;
+      width: 100%;
+      margin-bottom: 5px;
+    }
+
+    .login-box input[type="password"],
+    .login-box input[type="text"] {
+      width: 100%;
+      padding: 14px 45px 14px 14px;
+      box-sizing: border-box;
+      border: 1px solid #1e293b;
+      border-left: 3px solid #0284c7;
+      border-radius: 6px;
+      background: #0b0f19;
+      color: #f8fafc;
+      font-size: 1rem;
+      outline: none;
+      font-family: monospace;
+      letter-spacing: 2px;
+      transition: all 0.2s ease;
+    }
+
+    .login-box input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+    }
+
+    .eye-toggle {
+      position: absolute;
+      right: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 12px;
+      border: 2px solid #64748b;
+      border-radius: 50% 50%;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: border-color 0.2s;
+    }
+
+    .eye-toggle::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: #64748b;
+      border-radius: 50%;
+    }
+
+    .eye-toggle.visible {
+      border-color: #38bdf8;
+    }
+
+    .eye-toggle.visible::before {
+      background: #38bdf8;
+    }
+
+    .caps-indicator {
+      color: #f59e0b;
+      font-size: 0.75rem;
+      text-align: left;
+      padding-left: 2px;
+      margin-bottom: 12px;
+      height: 16px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+      visibility: hidden;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .login-box .error-msg {
+      color: #ef4444;
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      height: 18px;
+      visibility: hidden;
+      font-weight: bold;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 6px;
+      background: #0284c7;
+      color: white;
+      font-size: 1rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+    }
+
+    .btn-submit:hover {
+      background: #0369a1;
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.5);
+    }
+
+    .btn-submit.loading {
+      background: #0f172a;
+      color: #38bdf8;
+      border: 1px dashed #38bdf8;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="security-overlay">
+    <div class="login-box" id="login-container">
+      <h2>LOGIN</h2>
+      <p>Smart Home Security</p>
+
+      <div class="password-container">
+        <input type="password" id="password-input" placeholder="ACCESS KEY" onkeypress="handleKeyPress(event)" onkeyup="checkCaps(event)">
+        <div class="eye-toggle" id="eye-icon" onclick="togglePasswordVisibility()"></div>
+      </div>
+
+      <div class="caps-indicator" id="caps-warning">CAPS lock is On</div>
+      <div class="error-msg" id="error-message">Access Denied.</div>
+
+      <button class="btn-submit" id="submit-btn" onclick="processSignIn()">Sign In</button>
+    </div>
+  </div>
+
+  <div class="top">
+    <div class="home-icon">🏠</div>
+    <h1>Smart House</h1>
+    <div class="subtitle">ESP32 Bulb Control Panel</div>
+  </div>
+
+  <div class="container">
+)rawliteral";
+
+  html += "<div class='" + l1CardClass + "'>";
+  html += "<div class='room-name'>Bulb 1</div>";
+  html += "<div class='" + l1BulbClass + "'></div>";
+  html += "<div class='status'>Status: <span>" + l1Status + "</span></div>";
+  html += "<a href='" + l1Link + "' class='" + l1ButtonClass + " switch'>";
+  html += light1State ? "TURN OFF" : "TURN ON";
+  html += "</a>";
+  html += "</div>";
+
+  html += "<div class='" + l2CardClass + "'>";
+  html += "<div class='room-name'>Bulb 2</div>";
+  html += "<div class='" + l2BulbClass + "'></div>";
+  html += "<div class='status'>Status: <span>" + l2Status + "</span></div>";
+  html += "<a href='" + l2Link + "' class='" + l2ButtonClass + " switch'>";
+  html += light2State ? "TURN OFF" : "TURN ON";
+  html += "</a>";
+  html += "</div>";
+
+  html += "<div class='" + socketCardClass + "'>";
+  html += "<div class='room-name'>Socket</div>";
+  html += "<div class='" + socketIconClass + "'></div>";
+  html += "<div class='status'>Status: <span>" + socketStatus + "</span></div>";
+  html += "<a href='" + socketLink + "' class='" + socketButtonClass + " switch'>";
+  html += socket1State ? "TURN OFF" : "TURN ON";
+  html += "</a>";
+  html += "</div>";
+
+  html += R"rawliteral(
+  </div>
+
+  <div class="small-text">
+    Control your home bulbs from your ESP32 web server
+  </div>
+
+  <script>
+    const ADMIN_PASSWORD = "Group16@2026";
+
+    document.addEventListener("DOMContentLoaded", function () {
+      const overlay = document.getElementById("security-overlay");
+
+      // Remember trusted device/browser
+      if (localStorage.getItem("smartHouseAuth") === "true") {
+        overlay.style.visibility = "hidden";
+        overlay.style.opacity = "0";
+      }
+    });
+
+    function checkCaps(event) {
+      const capsWarning = document.getElementById('caps-warning');
+      if (event.getModifierState && event.getModifierState('CapsLock')) {
+        capsWarning.style.visibility = 'visible';
+      } else {
+        capsWarning.style.visibility = 'hidden';
+      }
+    }
+
+    function togglePasswordVisibility() {
+      const passwordInput = document.getElementById('password-input');
+      const eyeIcon = document.getElementById('eye-icon');
+
+      if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        eyeIcon.classList.add('visible');
+      } else {
+        passwordInput.type = 'password';
+        eyeIcon.classList.remove('visible');
+      }
+    }
+
+    function processSignIn() {
+      const passwordInput = document.getElementById('password-input').value;
+      const errorMsg = document.getElementById('error-message');
+      const submitBtn = document.getElementById('submit-btn');
+      const overlay = document.getElementById('security-overlay');
+      const loginContainer = document.getElementById('login-container');
+
+      if (submitBtn.classList.contains('loading')) return;
+
+      submitBtn.textContent = 'Verifying Key...';
+      submitBtn.classList.add('loading');
+      errorMsg.style.visibility = 'hidden';
+
+      setTimeout(() => {
+        if (passwordInput === ADMIN_PASSWORD) {
+          localStorage.setItem('smartHouseAuth', 'true');
+          submitBtn.textContent = 'Access Granted';
+          submitBtn.style.background = '#10b981';
+          submitBtn.style.color = '#ffffff';
+
+          loginContainer.style.transform = 'scale(0.9)';
+          loginContainer.style.opacity = '0';
+          overlay.style.opacity = '0';
+
+          setTimeout(() => {
+            overlay.style.visibility = 'hidden';
+          }, 500);
+        } else {
+          submitBtn.textContent = 'Sign In';
+          submitBtn.classList.remove('loading');
+          errorMsg.style.visibility = 'visible';
+          document.getElementById('password-input').value = '';
+        }
+      }, 600);
+    }
+
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        processSignIn();
+      }
+    }
+  </script>
+</body>
+</html>
+)rawliteral";
+
+  return html;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(light1, OUTPUT);
+  pinMode(light2, OUTPUT);
+  pinMode(socket1, OUTPUT);
+
+  // Active LOW: HIGH means OFF at startup
+  digitalWrite(light1, OFF_STATE);
+  digitalWrite(light2, OFF_STATE);
+  digitalWrite(socket1, OFF_STATE);
+
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  Serial.println("Starting SmartHouse WiFi...");
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssid, password);
+
+  IPAddress IP = WiFi.softAPIP();
+
+  Serial.println("SmartHouse WiFi started.");
+  Serial.print("Connect to WiFi: ");
+  Serial.println(ssid);
+  Serial.print("Password: ");
+  Serial.println(password);
+  Serial.print("Open this address: http://");
+  Serial.println(IP);
+
+  Serial.println();
+  Serial.println("WiFi connected.");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  server.begin();
+}
+
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    String request = "";
+
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        request += c;
+
+        if (c == '\n') {
+          if (request.indexOf("GET /L1ON") >= 0) {
+            light1State = true;
+            digitalWrite(light1, ON_STATE);
+          }
+
+          if (request.indexOf("GET /L1OFF") >= 0) {
+            light1State = false;
+            digitalWrite(light1, OFF_STATE);
+          }
+
+          if (request.indexOf("GET /L2ON") >= 0) {
+            light2State = true;
+            digitalWrite(light2, ON_STATE);
+          }
+
+          if (request.indexOf("GET /L2OFF") >= 0) {
+            light2State = false;
+            digitalWrite(light2, OFF_STATE);
+          }
+
+          if (request.indexOf("GET /S1ON") >= 0) {
+            socket1State = true;
+            digitalWrite(socket1, ON_STATE);
+          }
+
+          if (request.indexOf("GET /S1OFF") >= 0) {
+            socket1State = false;
+            digitalWrite(socket1, OFF_STATE);
+          }
+
+          client.println("HTTP/1.1 200 OK");
+          client.println("Content-type:text/html");
+          client.println("Connection: close");
+          client.println();
+
+          client.print(makePage());
+
+          client.println();
+          break;
+        }
+      }
+    }
+
+    delay(1);
+    client.stop();
+  }
+}
