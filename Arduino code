@@ -3,7 +3,7 @@
 
 // WiFi details
 const char *ssid = "SmartHouse_Group16";
-const char *password = "12345678";
+const char *password = "********";
 
 WiFiServer server(80);
 
